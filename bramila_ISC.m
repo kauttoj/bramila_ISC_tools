@@ -382,8 +382,7 @@ for i = 1:cfg.parallel_jobs
 end
 fprintf('... %i jobs submitted (%s), waiting...\n',sum(wait_for),datestr(datetime('now')));
 % note, we allow some jobs to fail here as not all permutation sets are needed
-wait_for_jobs(cfg.stage2_cfgfiles(wait_for),jobnames(wait_for),cfg.stage2_jobfiles(wait_for),lognames(wait_for),3,ceil(length(cfg.parallel_jobs)*cfg.iterJobPassThreshold));
-
+wait_for_jobs(cfg.stage2_cfgfiles(wait_for),jobnames(wait_for),cfg.stage2_jobfiles(wait_for),lognames(wait_for),3,ceil(cfg.parallel_jobs*cfg.iterJobPassThreshold));
 t=toc();
 fprintf('Permutations completed in %0.1fmin with %0.2fs/permutation (%s)\n',t/60,t/(cfg.iter*cfg.parallel_jobs),datestr(now,'HH:MM:SS'));
 
