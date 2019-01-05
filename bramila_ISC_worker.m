@@ -75,14 +75,16 @@ else
         
         REAL_tvals=[];
         pvals=[];
+        iscvals=[];
         for segment_nr = 1:cfg.data_split_parts
             segment = all_segments(segment_nr):(all_segments(segment_nr+1)-1);
             fprintf('...loading data segment %i of %i\n',segment_nr,cfg.data_split_parts);
             alldata = load_data(cfg,Nsubs,segment);                
             fprintf('...computing unpermuted values\n');
-            [~,REAL_tvals0,pvals0] = permute_and_compute(alldata,0,cfg.perm_method,cfg.doFisherTransform,cfg.group1_ind,cfg.group2_ind);
+            [~,REAL_tvals0,pvals0,~,iscvals0] = permute_and_compute(alldata,0,cfg.perm_method,cfg.doFisherTransform,cfg.group1_ind,cfg.group2_ind);
             REAL_tvals=[REAL_tvals;REAL_tvals0];
             pvals=[pvals;pvals0];
+            iscvals=[iscvals;iscvals0];
             clear alldata;            
         end
         
@@ -104,6 +106,14 @@ else
         REAL_tfce_map = zeros(sz_mask);
         REAL_tfce_map(inmask) = REAL_tfce_vals_signed;
         
+        % make maps of isc vals
+        iscvals_maps = zeros([sz_mask,size(iscvals,2)]);
+        for i=1:size(iscvals,2)
+            iscvals_map = zeros(sz_mask);
+            iscvals_map(inmask) = iscvals(:,i);
+            iscvals_maps(:,:,:,i) = iscvals_map;
+        end
+        
         fprintf('..saving results into %s\n',cfg.stage1_resultfiles);
         
         save(cfg.stage1_resultfiles,...
@@ -113,7 +123,7 @@ else
             'REAL_clstat_map',...
             'REAL_tfce_vals_signed',...
             'REAL_tfce_vals',...
-            'REAL_tfce_map','-v7.3');
+            'REAL_tfce_map','iscvals_maps','-v7.3');
         
         stage = 2;
         save(cfg_file,'stage','-append');
@@ -124,7 +134,14 @@ else
         rng(cfg.process_index);
         
         % load unpermuted data to compare against
-        load(cfg.stage1_resultfiles);
+        load(cfg.stage1_resultfiles,...
+            'REAL_tvals',...
+            'REAL_tvals_map',...
+            'REAL_clstat',...
+            'REAL_clstat_map',...
+            'REAL_tfce_vals_signed',...
+            'REAL_tfce_vals',...
+            'REAL_tfce_map');
         
         % create null arrays
         exceedances_tfce_maxstat = zeros(Nvoxels,1);
@@ -258,8 +275,9 @@ function alldata = load_data(cfg,Nsubs,this_segment)
     end
 end
 
-function [alldata,tvals,pvals,shifts] = permute_and_compute(alldata,doPermute,perm_type,doFisherTransform,group1_ind,group2_ind,shifts)
+function [alldata,tvals,pvals,shifts,corvals_res] = permute_and_compute(alldata,doPermute,perm_type,doFisherTransform,group1_ind,group2_ind,shifts)
 
+corvals_res = [];
 if nargin<7
     shifts=[];
 end
@@ -326,15 +344,15 @@ if Nsub2>1
     % two sample t-vals
     [~,pvals,~,stats] = ttest2(corvals,corvals2,'Tail','both','Alpha',0.05,'Vartype','unequal','Dim',2);
     tvals = stats.tstat(:);
-    pvals=pvals(:);
-    
+    pvals=pvals(:);    
+    corvals_res = [corvals,corvals2];
 else
 
     % one sample t-vals
     [~,pvals,~,stats] = ttest(corvals,0.05,'Tail','right','Alpha',0.05,'Dim',2);
     tvals = max(0,stats.tstat(:)); % omit negative values
-    pvals=pvals(:);
-    
+    pvals=pvals(:);    
+    corvals_res = corvals;
 end
 
 end

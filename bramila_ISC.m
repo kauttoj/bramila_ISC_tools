@@ -425,9 +425,11 @@ save(nullfile,'nulldata','missing','-v7.3');
 % Now we have permutation maps and real maps, generate outputs
 fprintf('\nPopulating output struct (%s)\n',datestr(now,'HH:MM:SS'));
 
+% load unpermuted data
 realdata = load(cfg.stage1_resultfiles);
 
 results=[];
+results.raw_iscvals_maps = realdata.iscvals_maps; % one maps per subject
 results.raw_tval_map = realdata.REAL_tvals_map;
 results.raw_tfce_map = realdata.REAL_tfce_map; % this is signed
 results.mask = mask;
@@ -493,7 +495,6 @@ fprintf('\nResult preview: Voxels at corrected p<0.01 (pos+neg):\n... %i+%i for 
 
 resultfile = [cfg.workfolder,filesep,'final_results.mat'];
 save(resultfile,'cfg','results','-v7.3');          
-
 
 fprintf('\n---- All finished (%s) ----\n',datestr(now,'HH:MM:SS'));
 
