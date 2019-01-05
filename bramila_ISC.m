@@ -24,6 +24,7 @@ function results=bramila_ISC(cfg)
 %   cfg.niftitools_path = path to "load_nii" function, if not found, must set manually (OPTIONAL)
 %   cfg.memory_limit_GB = rought limit for allowed worker memory, data is splitted if needed (default 40GB, OPTIONAL)
 %   cfg.doLocalSerial = process all locally ONLY FOR TESTING PURPOSES (OPTIONAL)
+%   cfg.iterJobPassThreshold = percentage of stage 2 completed jobs required to move on (default 0.98 aka 98%)
 %
 %  Note: Permutations are SLOW (~5-10min for one permutation per cpu), cfg.parallel_jobs ~ 100 highly recommended. 
 %        Total permutation count is cfg.parallel_jobs*cfg.iter and should be >1000
@@ -105,6 +106,12 @@ if(~isfield(cfg,'doLocalSerial'))
    cfg.doLocalSerial = 0;
 end
 
+if(~isfield(cfg,'iterJobPassThreshold'))
+   cfg.iterJobPassThreshold = 0.98;
+end
+cfg.iterJobPassThreshold=max(cfg.iterJobPassThreshold,0.25);
+cfg.iterJobPassThreshold=min(cfg.iterJobPassThreshold,1);
+
 if(~isfield(cfg,'workfolder'))
     cfg.workfolder = tempdir();
     warning('Working folder not set, using system temp %s',cfg.workfolder);
@@ -155,7 +162,7 @@ if(~isfield(cfg,'iter'))
 end
 assert(cfg.iter<=10000); % lets not go crazy!
 
-if cfg.iter*cfg.parallel_jobs<1000
+if round(cfg.iter*cfg.parallel_jobs*cfg.iterJobPassThreshold)<1000
    warning('!! Only %i total iterations used, results are unreliable !!',cfg.iter*cfg.parallel_jobs);
 end 
 
@@ -267,7 +274,7 @@ for i = 1:Nsubs
     end
 end
 fprintf('... %i jobs submitted (%s), waiting...\n',sum(wait_for),datestr(datetime('now')));
-wait_for_jobs(cfg.stage0_cfgfiles(wait_for),jobnames(wait_for),cfg.stage0_jobfiles(wait_for),lognames(wait_for),1,true);
+wait_for_jobs(cfg.stage0_cfgfiles(wait_for),jobnames(wait_for),cfg.stage0_jobfiles(wait_for),lognames(wait_for),1,sum(wait_for));
 
 % OLD CODE FOR LOCAL DATA GENERATION:
 %         fprintf('...loading and saving data for subject %i/%i (group %i): %s\n',k,Nsubs,group,file);
@@ -341,7 +348,7 @@ if ~exist(cfg.stage1_resultfiles,'file') || cfg.overwrite>0
     save(cfg.stage1_cfgfiles,'cfg','stage');        
     [jobname,logname] = sendjob(cfg.max_mem_MB,cfg.stage1_jobfiles,cfg.stage1_cfgfiles,cfg.worker_path,'bramila_ISC_worker',cfg.doLocalSerial);
     fprintf('...job submitted, waiting (%s)...\n',datestr(datetime('now')));
-    wait_for_jobs({cfg.stage1_cfgfiles},{jobname},{cfg.stage1_jobfiles},{logname},2,true);
+    wait_for_jobs({cfg.stage1_cfgfiles},{jobname},{cfg.stage1_jobfiles},{logname},2,1);
 end
 
 %% STAGE 2: compute permutations
@@ -375,7 +382,7 @@ for i = 1:cfg.parallel_jobs
 end
 fprintf('... %i jobs submitted (%s), waiting...\n',sum(wait_for),datestr(datetime('now')));
 % note, we allow some jobs to fail here as not all permutation sets are needed
-wait_for_jobs(cfg.stage2_cfgfiles(wait_for),jobnames(wait_for),cfg.stage2_jobfiles(wait_for),lognames(wait_for),3,false);
+wait_for_jobs(cfg.stage2_cfgfiles(wait_for),jobnames(wait_for),cfg.stage2_jobfiles(wait_for),lognames(wait_for),3,ceil(length(cfg.parallel_jobs)*cfg.iterJobPassThreshold));
 
 t=toc();
 fprintf('Permutations completed in %0.1fmin with %0.2fs/permutation (%s)\n',t/60,t/(cfg.iter*cfg.parallel_jobs),datestr(now,'HH:MM:SS'));
@@ -533,7 +540,7 @@ end
 
 end
 
-function wait_for_jobs(CONFIGFILES,jobnames,jobfiles,lognames,STAGE,MUST_FINISH)
+function wait_for_jobs(CONFIGFILES,jobnames,jobfiles,lognames,STAGE,pass_count_threshold)
 % This function monitors progress of jobs and resubmits failed jobs if
 % necessary. Status of each cfg file must be valid to mark it completed. If
 % there are too many failed submissions, we crash (check logs to solve).
@@ -599,7 +606,7 @@ while 1
         end
     end
     
-    if sum(done_files)==length(done_files)
+    if sum(done_files)>=pass_count_threshold
         break;
     end
     % make sure the loop stops after specific time
@@ -613,8 +620,8 @@ while 1
     end
 end
 
-if MUST_FINISH % do we need all results in order to continue processing?
-    assert(sum(done_files)==length(done_files),'Some jobs failed to complete! Not allowed!')
+if sum(done_files)<pass_count_threshold
+    error('Only %i jobs completed (%i resuired)!',sum(done_files),pass_count_threshold)
 end
 
 fprintf('... All %i jobs finished (%i failed)!\n',nnz(done_files),sum(failed_files));
