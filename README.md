@@ -11,5 +11,7 @@ bramila_mantel_ISC.m
 bramila_ttest2_ISC.m
 - Run ISC analysis for pair-wise ISC correlation matrix. Takes ISC matrix as input and compares two groups using t-test2 type analysis. Runs locally.
 
+bramila_supervised_ISC.m
+- Run ISC analysis with specific subject-wise targets and simple k-nearest neighbors learning algorithm. Both regression and (binary) classification are supported. Runs locally.
 
-5.1.2019 Janne Kauttonen
+18.2.2019 Janne Kauttonen
