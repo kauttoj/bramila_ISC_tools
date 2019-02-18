@@ -260,7 +260,7 @@ data = data(inmask,:);
 data=data';
 %!!!!!!!!!!!!!!!!!!!!
 % convert similarities into distances, this is very important
-data = 1-data;
+data = -data;
 %!!!!!!!!!!!!!!!!!!!!
 
 % compute real, unpermuted values
