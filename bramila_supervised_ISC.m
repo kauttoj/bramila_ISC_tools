@@ -21,7 +21,7 @@ function results=bramila_supervised_ISC(cfg)
 %
 % Output results struct with following fields:
 %
-%                      results.raw_tval_map: 3D voxel-wise correlation values
+%               results.raw_correlation_map: 3D voxel-wise correlation (regression) or accuracy (classification) values
 %                      results.raw_tfce_map: 3D voxel-wise TFCE values
 %                              results.mask: 3D mask
 %                          results.mask_ind: mask indices
