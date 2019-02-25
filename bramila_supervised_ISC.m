@@ -129,7 +129,7 @@ end
 
 % k-values array
 if(~isfield(cfg,'k_vals'))
-    cfg.k_vals=[3,5,7,9];
+    cfg.k_val=5; % 5 is the default in scikit-learn
 end
 
 %% starting
@@ -236,12 +236,14 @@ data=reshape(data,[],length(ISC_mat_inds));
 data = data(inmask,:);
 data=data';
 
-model_params.k_vals = cfg.k_vals;
+model_params.k_val = cfg.k_val;
 model_params.isRegression = strcmp(cfg.type,'regression');
 model_params.isWeighted = cfg.distance_weighting;
 
 % compute real, unpermuted values
 [REAL_corvals,pvals] = compute_accuracy(data,cfg.target,model_params);
+
+assert(nnz(REAL_corvals<0 & pvals<0.05)==0,'negative tail contains p-values with p<0.05!')
 
 REAL_corvals_map = zeros(sz_mask);
 REAL_corvals_map(inmask) = REAL_corvals;
@@ -361,16 +363,17 @@ fprintf('---- All finished (%s) ----\n',datestr(now,'HH:MM:SS'));
 end
 
 function [corvals,pvals] =compute_accuracy(corMat,target,model_params)
-% k nearest neighbors learner
+% k nearest neighbors learner for regression and classification
 
 x=size(corMat,1);
 N=(0.5+sqrt(0.5^2+x*2));
 
-KK = model_params.k_vals;
+K = model_params.k_val;
 true_triu = triu(true(N),1);
 
 results=zeros(size(corMat,2),N);
 for sub=1:N
+    
     subs=1:N;
     subs(sub)=[];
     grps=target;
@@ -380,29 +383,27 @@ for sub=1:N
     mask(:,sub)=true;
     
     ind = mask(true_triu);
-    [similarity,idx]=sort(corMat(ind,:),'descend');        
+    [similarity,idx]=sort(corMat(ind,:),'descend');
     
-    for K=KK
-        if model_params.isRegression==1,                     
-            w = grps(idx(1:K,:));
-            if model_params.isWeighted==1,
-                w0 = similarity(1:K,:);
-                w0 = bsxfun(@times,w0,1./sum(w0,1));
-                w = grps(idx(1:K,:)).*w0;
-            else
-                w = grps(idx(1:K,:))/K;
-            end            
-            results(:,sub)=results(:,sub) + sum(w',2);
+    if model_params.isRegression==1,
+        w = grps(idx(1:K,:));
+        if model_params.isWeighted==1,
+            % weight the neighbors based on their distance
+            w0 = similarity(1:K,:);
+            w0 = bsxfun(@times,w0,1./sum(w0,1));
+            w = grps(idx(1:K,:)).*w0;
         else
-            results(:,sub)=results(:,sub) + mode(grps(idx(1:K,:))==target(sub))';
+            % uniform weighting
+            w = grps(idx(1:K,:))/K;
         end
+        results(:,sub)=results(:,sub) + sum(w',2);
+    else
+        results(:,sub)=results(:,sub) + mode(grps(idx(1:K,:))==target(sub))';
     end
-    
 end
-results = results/length(KK);
 
-if model_params.isRegression==1, 
-    [corvals,pvals] = corr(results',target);
+if model_params.isRegression==1,
+    [corvals,pvals] = corr(results',target,'Tail','right');
 else
     corvals = sum(results,2);
     p = nnz(target==target(1))/N;
