@@ -14,4 +14,8 @@ bramila_ttest2_ISC.m
 bramila_supervised_ISC.m
 - Run ISC analysis with specific subject-wise targets and simple k-nearest neighbors learning algorithm. Both regression and (binary) classification are supported. Runs locally.
 
+Notes:
+-For cluster statistics, uncorrected maps are typically nonsense because clusters move around, so only corrected p-values should be considered
+-TFCE is a statistical method to enhance voxel-wise contrast by taking into account spatial nature of data. This is followed by FWER correction (similar to raw maps)
+
 18.2.2019 Janne Kauttonen
