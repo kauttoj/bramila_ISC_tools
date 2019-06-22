@@ -164,9 +164,11 @@ end
 
 if cfg.doFisherTransform
     numNans = nnz(isnan(data));
+    assert(nanmax(data(:))<1 && nanmin(data(:))>-1,'Data must be -1<x<1 before Fisher transform!');
     data = atanh(data);
     assert(numNans == nnz(isnan(data)),'Fisher transformation failed, NaN values emerged! Check your input data!');
 end
+assert(isreal(data),'Data must be real-valued!');
 
 % load mask
 if ischar(cfg.mask)
