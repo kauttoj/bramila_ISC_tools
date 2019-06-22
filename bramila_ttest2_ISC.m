@@ -14,6 +14,7 @@ function results=bramila_ttest2_ISC(cfg)
 %   cfg.p_val_threshold = cluster forming threshold p-value in using parametric test (OPTIONAL)
 %   cfg.NumWorkers = number of requested workers in parfor (default from the local profile) (OPTIONAL)
 %   cfg.iter = number of permutations (default 5000) (OPTIONAL)
+%   cfg.permutation_type = how to permute data, 'subjectwise' = permute rows/cols (conservative, default), 'elementwise' = permute elements (liberal, unrestricted permutations)
 %   cfg.doFisherTransform = do Fisher transform for ISC values (default 1) (OPTIONAL), skip if already converted!
 %
 % Output results struct with following fields:
@@ -38,11 +39,12 @@ function results=bramila_ttest2_ISC(cfg)
 %  2018, Brain and Mind Laboratory Aalto University
 %
 %  29.11.2018 first version
+%  22.6.2019 added subjectwise permutations (stricker test)
 
 % if no input is given, create and analyze dummy test data
 if nargin==0,    
     cfg=[];    
-    cfg.group_id = [0,ones(1,10),0,0,2*ones(1,12)];
+    cfg.group_id = [0,ones(1,10),0,0,2*ones(1,10),0];
     N_subj = length(cfg.group_id);       
     cfg.mask = zeros(41,45,47);
     cfg.mask(5:38,12:42,2:41)=1;
@@ -75,7 +77,8 @@ if nargin==0,
     cfg.infile(1,1,1,:) = 0.50*model2(inds) + 0.50*nullmodel(inds);    
     %cfg.modelNI = [];
     cfg.iter = 700;    
-    cfg.NumWorkers=4;
+    cfg.NumWorkers=1;
+    cfg.doFisherTransform=0;
     RESULTS=bramila_ttest2_ISC(cfg);  
     return
 end
@@ -106,6 +109,12 @@ if isempty(mycluster)
 end
 cfg.NumWorkers = mycluster.NumWorkers;
 
+% permutation type
+if ~isfield(cfg,'permutation_type')
+    cfg.permutation_type='subjectwise';
+end
+assert(sum(ismember(cfg.permutation_type,{'subjectwise','elementwise'}))>0,'Unknown permutation type!');
+
 % initialize iter
 if(~isfield(cfg,'iter'))
     cfg.iter=5000;
@@ -120,6 +129,7 @@ end
 % group indices of rows & columns
 group1_ind = find(cfg.group_id==1);
 group2_ind = find(cfg.group_id==2);
+group_rows = find(cfg.group_id==1 | cfg.group_id==2);
 Nsubj1 = length(group1_ind);
 Nsubj2 = length(group2_ind);
 Nsubs = Nsubj1+Nsubj2;
@@ -142,9 +152,11 @@ end
 
 if cfg.doFisherTransform
     numNans = nnz(isnan(data));
+    assert(nanmax(data(:))<1 && nanmin(data(:))>-1,'Data must be -1<x<1 before Fisher transform!');
     data = atanh(data);
     assert(numNans == nnz(isnan(data)),'Fisher transformation failed, NaN values emerged! Check your input data!');
 end
+assert(isreal(data),'Data must be real-valued!');
 
 % load mask
 if ischar(cfg.mask)
@@ -187,37 +199,16 @@ index_mat(ISC_mat_inds)=1:length(ISC_mat_inds);
 index_mat = index_mat + index_mat';
 
 % make group-wise index matrices
-mat = zeros(Nsubs_ISC);
-mat(group1_ind,group1_ind)=1;
-mat(group2_ind,group2_ind)=2;
-ind1=index_mat(triu(mat==1,1));
-ind2=index_mat(triu(mat==2,1));
+group_mat = zeros(Nsubs_ISC);
+group_mat(group1_ind,group1_ind)=1;
+group_mat(group2_ind,group2_ind)=2;
+ind1=index_mat(triu(group_mat==1,1));
+ind2=index_mat(triu(group_mat==2,1));
 ISC_mat_inds_allgroups = [ind1',ind2']; % this extracts all elements of groups
-clear mat
 
 % which indices belong to which groups
 ISC_mat_inds_group1 = 1:length(ind1);
 ISC_mat_inds_group2 = ISC_mat_inds_group1(end) + (1:length(ind2));
-
-% create permutated groups, first permutation is the real order!
-assert(Nsubs_ISC<360); % uint16 limit check
-fprintf('Creating permutation sets (%s)\n',datestr(now,'HH:MM:SS'));    
-
-iter=1;
-L=length(ISC_mat_inds_allgroups);
-unordered = 1:length(ISC_mat_inds_allgroups);
-perms_sets = zeros(L,cfg.iter,'uint16');
-th = max(5,round(0.05*L));
-while iter < cfg.iter+1
-    % require that least 5% of elements are permuted (could be even stricker!)
-    perm = randperm(L);
-    if nnz(perm-unordered)<th
-        continue;
-    end
-    perms_sets(:,iter)=ISC_mat_inds_allgroups(perm);
-    iter=iter+1;
-end
-assert(nnz(perms_sets==0)==0);
 
 % options for TFCE, these are the defaults for 3D fMRI data
 tfce_opts=[];
@@ -256,19 +247,62 @@ REAL_tfce_map(inmask) = REAL_tfce_vals_signed;
 
 fprintf('Input data: Volume size %i*%i*%i with %i masked voxels (%0.1f%% coverage) and %i+%i subjects (total %i in ISC matrix)\n',...
     sz_mask(1),sz_mask(2),sz_mask(3),Nvoxels,mask_coverage_prc,Nsubj1,Nsubj2,Nsubs_ISC);
-fprintf('Starting permutations with %i iterations and %i workers (%s)\n',cfg.iter,cfg.NumWorkers,datestr(now,'HH:MM:SS'))
-pause(0.05); % pause to allow printing
-tic;
 
 % create null
 exceedances_tfce_maxstat = zeros(1,Nvoxels);
 exceedances_tfce = zeros(1,Nvoxels);
 exceedances_raw = zeros(1,Nvoxels);
 cluster_max_sizes = nan(cfg.iter,1);
+
+% create permutated groups, first permutation is the real order!
+assert(Nsubs_ISC<250,'Over 250 subjects, cannot use uint16 array!'); % uint16 limit check
+fprintf('Creating permutation sets (%s)\n',datestr(now,'HH:MM:SS'));    
+
+iter=1;
+L=length(ISC_mat_inds_allgroups);
+unordered = 1:length(ISC_mat_inds_allgroups);
+unordered_sub = 1:Nsubs;
+perms_sets = zeros(L,cfg.iter,'uint16');
+th = max(1,round(0.05*L));
+th_sub = max(1,round(0.05*Nsubs));
+
+testdata =  meshgrid(1:Nsubs_ISC,1:Nsubs_ISC);
+
+while iter < cfg.iter+1
+    % require that least 5% of elements are permuted (could be even stricker!)
+    if strcmp(cfg.permutation_type,'subjectwise')
+        % permute subject identities (restricted permutation sets)
+        perm = randperm(Nsubs);                       
+        if nnz(perm-unordered_sub)<th_sub
+            continue;
+        end       
+        arr = 1:Nsubs_ISC;
+        arr(group_rows) = group_rows(perm);                 
+        index_mat_perm = index_mat(arr,arr);                        
+        ind1=index_mat_perm(triu(group_mat==1,1));
+        ind2=index_mat_perm(triu(group_mat==2,1));
+        perm_set = [ind1',ind2'];        
+    else % elementwise
+        % permute elements (unrestricted permutation sets)
+        perm = randperm(L);
+        if nnz(perm-unordered)<th
+            continue;
+        end        
+        perm_set = ISC_mat_inds_allgroups(perm);
+    end
+    perms_sets(:,iter)=perm_set;
+    iter=iter+1;
+end
+assert(nnz(perms_sets==0)==0,'zeros in permutation indices, BUG!');
+
+fprintf('Starting permutations with %i iterations and %i workers (%s)\n',cfg.iter,cfg.NumWorkers,datestr(now,'HH:MM:SS'))
+pause(0.05); % pause to allow printing
+tic;
+
 parfor (iter = 1:cfg.iter,cfg.NumWorkers)
 %for iter = 1:cfg.iter           
     % get permuted model
-    null_inds = perms_sets(:,iter);
+    null_inds = perms_sets(:,iter);    
     [~,pvals,~,stats] = ttest2(...
         data(null_inds(ISC_mat_inds_group1),:),...
         data(null_inds(ISC_mat_inds_group2),:),...
@@ -415,8 +449,7 @@ X = D(mask);
 % value given supplied by the user.
 if opts.tfce.deltah == 0,
     % "delta h"
-    dh = max(X(:))/100;
-    
+    dh = max(X(:))/100;    
     % Volume (voxelwise data)
     tfcestat = zeros(size(D));
     for h = dh:dh:max(D(:))
