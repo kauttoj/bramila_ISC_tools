@@ -16,7 +16,7 @@ function results=bramila_supervised_ISC(cfg)
 %   cfg.NumWorkers = number of requested workers in parfor (default from the local profile) (OPTIONAL)
 %   cfg.type = target type, must be regression or classification
 %   cfg.iter = number of permutations (default 5000) (OPTIONAL)
-%   cfg.k_vals = array of nearest neighbors, results are averaged over these (OPTIONAL)
+%   cfg.k_val = number if nearest neighbors (default 5, OPTIONAL)
 %   cfg.distance_weighting = use distance weighting (0 or 1) (OPTIONAL)
 %
 % Output results struct with following fields:
@@ -128,7 +128,7 @@ if(~isfield(cfg,'distance_weighting'))
 end
 
 % k-values array
-if(~isfield(cfg,'k_vals'))
+if(~isfield(cfg,'k_val'))
     cfg.k_val=5; % 5 is the default in scikit-learn
 end
 
