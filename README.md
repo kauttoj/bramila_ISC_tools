@@ -1,6 +1,6 @@
 # fmri_ISC_tools
 
-This repo contains three functions to perform fmri ISC analyses:
+This repo contains four functions to perform fmri ISC analyses:
 
 bramila_ISC.m (+ bramila_ISC_worker.m)
 - Run ISC analysis with "one-vs-rest" approach, no pairwise comparisons. Takes nifti files as input. Does one group and two groups analyses. Can only do cluster computations!
